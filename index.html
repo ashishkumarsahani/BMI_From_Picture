@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webcam BMI Prediction</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.3.0/tf.min.js" integrity="sha512-X00OiLKFsrh2ogo5R/0KNAxplnmE4DS1uYuVlMIsIr1nHztxqg4ovnQwWgqQuO+bqQH1EOkoEVxGMzN/p4ZXDg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+</head>
+<body>
+    <video id="video" width="640" height="480" autoplay></video>
+    <button id="capture">Capture</button>
+    <canvas id="canvas" width="640" height="480"></canvas>
+    <div id="results">
+        <p id="bmi-label" style="font-size: 50px;"></p>
+    </div>
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const captureBtn = document.getElementById('capture');
+        const bmiLabel = document.getElementById('bmi-label');
+
+        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+            .then(stream => {
+                video.srcObject = stream;
+                video.play();
+            })
+            .catch(err => {
+                console.error('An error occurred: ', err);
+            });
+
+        const faceMesh = new FaceMesh({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        }});
+
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5,
+            refineLandmarks: true,
+        });
+
+        faceMesh.onResults(onResults);
+
+
+        async function onResults(results) {
+            if (results.multiFaceLandmarks) {
+                const face = results.multiFaceLandmarks[0];
+                const flattenedPoints = flattenPoints(face);
+                
+                // Draw points on the canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(video, 0, 0, 640, 480);
+
+                face.forEach(point => {
+                    ctx.beginPath();
+                    ctx.arc(point.x * 640, point.y * 480, 2, 0, 2 * Math.PI);
+                    ctx.fillStyle = 'red';
+                    ctx.fill();
+                });
+
+                const model = await tf.loadLayersModel('tfjs_model/model.json');
+                console.log(model.summary());
+                const inputTensor = tf.tensor2d([flattenedPoints]);
+                const prediction = model.predict(inputTensor);
+                const bmi = prediction.dataSync()[0];
+
+                bmiLabel.innerHTML = `Predicted BMI: ${bmi.toFixed(2)}`;
+            }
+        }
+
+        captureBtn.addEventListener('click', async () => {
+            bmiLabel.innerHTML = `Loading face model. Please wait ...`;
+            await faceMesh.send({image: video});
+        });
+
+        function flattenPoints(points) {
+            console.log(points);
+            let flattenedPoints = [];
+            points.forEach(point => {
+                flattenedPoints.push(point.x);
+                flattenedPoints.push(point.y);
+                flattenedPoints.push(point.z);
+            });
+
+            return flattenedPoints;
+        }
+
+    </script>
+</body>
+</html>
